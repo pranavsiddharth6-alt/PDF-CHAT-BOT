@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
 import "./App.css";
+
+import Sidebar from "./components/Sidebar";
+import Header from "./components/Header";
+import MessageItem from "./components/MessageItem";
+import Composer from "./components/Composer";
+import SourceDrawer from "./components/SourceDrawer";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -10,6 +15,7 @@ function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [uploadedDoc, setUploadedDoc] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Chat & Conversation State
   const [conversationId, setConversationId] = useState(null);
@@ -18,7 +24,11 @@ function App() {
   const [chatError, setChatError] = useState(null);
   const [messages, setMessages] = useState([]);
 
-  // Backend Health State
+  // Source Drawer & Preview State
+  const [activeSource, setActiveSource] = useState(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // Backend Health & UI Navigation State
   const [backendHealthy, setBackendHealthy] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -26,7 +36,7 @@ function App() {
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef(null);
 
-  // Auto-scroll ref
+  // Auto-scroll ref & textarea ref
   const messagesEndRef = useRef(null);
   const chatInputRef = useRef(null);
 
@@ -61,10 +71,7 @@ function App() {
     textarea.style.height = `${Math.max(newHeight, 48)}px`;
   }, [chatQuestion]);
 
-  // Drag & Drop State
-  const [isDragging, setIsDragging] = useState(false);
-
-  // Common File Validation & Selection Handler
+  // File Validation & Selection Handler
   const processSelectedFile = (selected) => {
     if (!selected) return;
     if (!selected.name.toLowerCase().endsWith(".pdf")) {
@@ -150,7 +157,6 @@ function App() {
 
       setUploadedDoc(data);
       setFile(null);
-      // Reset file input element if needed
       const fileInput = document.getElementById("pdf-file-input");
       if (fileInput) fileInput.value = "";
     } catch (err) {
@@ -162,7 +168,7 @@ function App() {
 
   // Handle Chat Submission
   const handleChat = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const q = chatQuestion.trim();
 
     if (!q) {
@@ -174,7 +180,11 @@ function App() {
     setChatError(null);
 
     // Optimistic UI: Add user message immediately
-    const userMsg = { role: "user", content: q, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    const userMsg = {
+      role: "user",
+      content: q,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setChatQuestion("");
@@ -239,6 +249,8 @@ function App() {
     setMessages([]);
     setChatError(null);
     setChatQuestion("");
+    setActiveSource(null);
+    setIsDrawerOpen(false);
     if (chatInputRef.current) {
       chatInputRef.current.focus();
     }
@@ -262,419 +274,199 @@ function App() {
     <div className="layout-root">
       {/* ── Clear-Chat Toast ── */}
       {toastVisible && (
-        <div
-          className="clear-toast"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <span className="clear-toast-icon" aria-hidden="true">✓</span>
+        <div className="clear-toast" role="status">
+          <span className="clear-toast-icon">✓</span>
           Conversation cleared
         </div>
       )}
 
-      {/* ── Mobile Sidebar Toggle Overlay ── */}
-      {sidebarOpen && (
-        <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* ── Sidebar ─────────────────────────────────────────────────── */}
-      <aside className={`app-sidebar ${sidebarOpen ? "open" : ""}`}>
-        <div className="sidebar-brand">
-          <div className="brand-icon">📄</div>
-          <div className="brand-info">
-            <h2>PDF Chatbot</h2>
-            <span className="brand-subtitle">RAG + Multi-Turn AI</span>
-          </div>
-        </div>
-
-        {/* Backend Status Indicator */}
-        <div className="backend-status-pill">
-          <span className={`status-dot ${backendHealthy ? "online" : "offline"}`} />
-          <span className="status-label">
-            {backendHealthy === null
-              ? "Checking Server..."
-              : backendHealthy
-              ? "Backend Online"
-              : "Backend Disconnected"}
-          </span>
-        </div>
-
-        {/* PDF Upload Section */}
-        <div className="sidebar-section upload-section">
-          <h3 className="sidebar-heading">Upload Document</h3>
-          <form onSubmit={handleUpload} className="sidebar-upload-form">
-            <div className="custom-file-dropzone">
-              <input
-                type="file"
-                id="pdf-file-input"
-                accept=".pdf,application/pdf"
-                onChange={handleFileChange}
-                className="hidden-file-input"
-              />
-              <label
-                htmlFor="pdf-file-input"
-                className={`file-drop-label ${isDragging ? "drag-active" : ""}`}
-                onDragOver={handleDragOver}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <span className="file-icon">{isDragging ? "📥" : "📁"}</span>
-                <span className="file-text">
-                  {isDragging
-                    ? "Drop PDF file here..."
-                    : file
-                    ? file.name
-                    : "Choose or drag PDF..."}
-                </span>
-                <span className="file-hint">Max 50MB (.pdf)</span>
-              </label>
-            </div>
-
-            <button
-              type="submit"
-              disabled={!file || uploading}
-              className="btn btn-primary btn-block"
-            >
-              {uploading ? (
-                <>
-                  <span className="spinner" /> Uploading & Processing...
-                </>
-              ) : (
-                "Upload & Index PDF"
-              )}
-            </button>
-          </form>
-
-          {uploadError && (
-            <div className="alert alert-error">
-              <strong>Error:</strong> {uploadError}
-            </div>
-          )}
-
-          {uploading && (
-            <div className="alert alert-info">
-              Parsing PDF → Chunking → Generating Embeddings → Storing in Chroma Cloud...
-            </div>
-          )}
-        </div>
-
-        {/* Uploaded Document Info Card */}
-        {uploadedDoc && (
-          <div className="sidebar-section doc-info-card">
-            <div className="doc-info-header">
-              <span className="doc-icon">📑</span>
-              <div className="doc-title-box">
-                <h4 className="doc-filename" title={uploadedDoc.filename}>
-                  {uploadedDoc.filename}
-                </h4>
-                <span className="badge badge-success">Indexed & Ready</span>
-              </div>
-            </div>
-
-            <div className="doc-stats-grid">
-              <div className="stat-box">
-                <span className="stat-number">{uploadedDoc.total_pages}</span>
-                <span className="stat-name">Pages</span>
-              </div>
-              <div className="stat-box">
-                <span className="stat-number">{uploadedDoc.total_chunks}</span>
-                <span className="stat-name">Chunks</span>
-              </div>
-              <div className="stat-box">
-                <span className="stat-number">{uploadedDoc.vectors_stored}</span>
-                <span className="stat-name">Vectors</span>
-              </div>
-              <div className="stat-box">
-                <span className="stat-number">{uploadedDoc.embedding_dimension}d</span>
-                <span className="stat-name">Dimension</span>
-              </div>
-            </div>
-
-            <div className="doc-meta-footer">
-              <small>Vector Store: <strong>{uploadedDoc.vector_store_status}</strong></small>
-              <small>Model: <strong>{uploadedDoc.embedding_model}</strong></small>
-            </div>
-          </div>
-        )}
-
-        {/* Conversation Action */}
-        <div className="sidebar-footer">
-          <button
-            type="button"
-            onClick={handleNewConversation}
-            className="btn btn-secondary btn-block"
-            title="Start a fresh conversation memory session"
-          >
-            ➕ New Conversation
-          </button>
-          {conversationId && (
-            <div className="session-id-tag">
-              <small>Session: {conversationId.slice(0, 8)}...</small>
-            </div>
-          )}
-        </div>
-      </aside>
+      {/* ── Left Sidebar ───────────────────────────────────────────── */}
+      <Sidebar
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        backendHealthy={backendHealthy}
+        file={file}
+        uploading={uploading}
+        uploadError={uploadError}
+        uploadedDoc={uploadedDoc}
+        isDragging={isDragging}
+        handleFileChange={handleFileChange}
+        handleDragOver={handleDragOver}
+        handleDragEnter={handleDragEnter}
+        handleDragLeave={handleDragLeave}
+        handleDrop={handleDrop}
+        handleUpload={handleUpload}
+        handleNewConversation={handleNewConversation}
+        conversationId={conversationId}
+      />
 
       {/* ── Main Chat Area ───────────────────────────────────────────── */}
-      <main className="chat-main">
+      <main className="chat-main-wrapper">
         {/* Backend Offline Banner */}
         {backendHealthy === false && (
-          <div className="backend-offline-banner" role="alert" aria-live="assertive">
-            <span className="offline-banner-icon" aria-hidden="true">⚠️</span>
+          <div className="offline-banner" role="alert">
+            <span className="material-symbols-outlined text-[20px]">warning</span>
             <span>
-              <strong>Backend unavailable.</strong> The server at{" "}
-              <code>{API_URL}</code> is not responding. Please start the backend and refresh.
+              <strong>Backend unavailable.</strong> The server at <code>{API_URL}</code> is not responding. Please start the backend.
             </span>
           </div>
         )}
-        {/* Top Chat Header */}
-        <header className="chat-header">
-          <div className="header-left">
-            <button
-              className="mobile-menu-btn"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              aria-label="Toggle Sidebar"
-            >
-              ☰
-            </button>
-            <div className="chat-title-group">
-              <h1>DocuChat AI</h1>
-              <span className="chat-status-sub">
-                {uploadedDoc
-                  ? `Active Document: ${uploadedDoc.filename}`
-                  : "No document uploaded yet"}
-              </span>
-            </div>
-          </div>
 
-          <div className="header-right">
-            {conversationId && (
-              <span className="active-session-badge">
-                Session Active
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={handleNewConversation}
-              className="btn-text-action"
-              title="Reset conversation memory"
-            >
-              Clear Chat
-            </button>
-          </div>
-        </header>
+        {/* Top Header */}
+        <Header
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          uploadedDoc={uploadedDoc}
+          conversationId={conversationId}
+          handleNewConversation={handleNewConversation}
+          onToggleDrawer={() => setIsDrawerOpen(!isDrawerOpen)}
+        />
 
         {/* Chat Messages Container */}
-        <div className="chat-messages-scroll">
-          {messages.length === 0 ? (
-            !uploadedDoc ? (
-              <div className="chat-empty-state pre-upload-state">
-                <div className="empty-icon-wrap" aria-hidden="true">📄</div>
-                <h2>Upload a PDF to get started</h2>
+        <div className="chat-scroll-canvas">
+          <div className="chat-center-container">
+            {/* Topic Session Header */}
+            <div className="topic-session-header">
+              <div className="topic-header-left">
+                <span className="doc-context-label">Document Context</span>
+                <span className="active-doc-badge">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+                  {uploadedDoc ? `${uploadedDoc.filename} Active` : "No Document Active"}
+                </span>
+              </div>
+              <button
+                className="view-drawer-btn"
+                type="button"
+                onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+              >
+                <span className="material-symbols-outlined text-[16px]">auto_stories</span>
+                <span>View Source Drawer</span>
+              </button>
+            </div>
+
+            {/* Chat Content */}
+            {messages.length === 0 ? (
+              <div className="chat-empty-canvas">
+                <div className="empty-icon-circle">
+                  <span className="material-symbols-outlined text-[28px]">smart_toy</span>
+                </div>
+                <h2>DocuChat AI Workspace</h2>
                 <p>
-                  Upload a PDF document using the left sidebar to start asking questions.
-                  Your answers will be strictly grounded in the document you upload with exact page citations.
+                  {uploadedDoc
+                    ? `Ready to query ${uploadedDoc.filename} (${uploadedDoc.total_pages} pages indexed). Ask any question or pick a sample prompt.`
+                    : "Upload a PDF document to start asking questions. Your answers will be strictly grounded with exact page citations."}
                 </p>
 
-                <div className="pre-upload-guide-box">
-                  <div className="guide-item">
-                    <span className="guide-icon" aria-hidden="true">⚡</span>
-                    <span className="guide-text">
-                      <strong>Smart Ingestion:</strong> Fast text parsing and semantic chunking
-                    </span>
+                {uploadedDoc ? (
+                  <div className="sample-prompts-wrap">
+                    <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Suggested Queries</span>
+                    <div className="sample-chips-grid">
+                      <button
+                        type="button"
+                        className="sample-chip"
+                        onClick={() => handleSamplePrompt("What is the main summary of this document?")}
+                      >
+                        💡 What is the main summary of this document?
+                      </button>
+                      <button
+                        type="button"
+                        className="sample-chip"
+                        onClick={() => handleSamplePrompt("What are the key findings or conclusions?")}
+                      >
+                        🔍 What are the key findings or conclusions?
+                      </button>
+                      <button
+                        type="button"
+                        className="sample-chip"
+                        onClick={() => handleSamplePrompt("Explain the core concept in simple terms.")}
+                      >
+                        📖 Explain the core concept in simple terms.
+                      </button>
+                    </div>
                   </div>
-                  <div className="guide-item">
-                    <span className="guide-icon" aria-hidden="true">🔍</span>
-                    <span className="guide-text">
-                      <strong>Chroma Cloud Vectors:</strong> High-precision semantic similarity retrieval
-                    </span>
+                ) : (
+                  <div className="feature-cards-grid">
+                    <div className="feature-card">
+                      <div className="feature-card-icon">
+                        <span className="material-symbols-outlined">bolt</span>
+                      </div>
+                      <div className="feature-card-title">Fast Ingestion</div>
+                      <div className="feature-card-desc">Page text parsing & metadata-aware chunking</div>
+                    </div>
+                    <div className="feature-card">
+                      <div className="feature-card-icon">
+                        <span className="material-symbols-outlined">database</span>
+                      </div>
+                      <div className="feature-card-title">Chroma Cloud</div>
+                      <div className="feature-card-desc">Hosted MiniLM 384-d semantic vector retrieval</div>
+                    </div>
+                    <div className="feature-card">
+                      <div className="feature-card-icon">
+                        <span className="material-symbols-outlined">verified</span>
+                      </div>
+                      <div className="feature-card-title">Grounded Answers</div>
+                      <div className="feature-card-desc">LLM response synthesis with verified citations</div>
+                    </div>
                   </div>
-                  <div className="guide-item">
-                    <span className="guide-icon" aria-hidden="true">💬</span>
-                    <span className="guide-text">
-                      <strong>Grounded Answers:</strong> Qwen AI responses with direct page citations
-                    </span>
-                  </div>
-                </div>
+                )}
               </div>
             ) : (
-              <div className="chat-empty-state post-upload-state">
-                <div className="empty-icon-wrap" aria-hidden="true">✨</div>
-                <h2>Your document is ready</h2>
-                <p>
-                  <strong>{uploadedDoc.filename}</strong> ({uploadedDoc.total_pages} {uploadedDoc.total_pages === 1 ? "page" : "pages"}) is indexed. Ask any question below or choose a prompt:
-                </p>
+              <div className="dialogue-thread">
+                {messages.map((msg, index) => (
+                  <MessageItem
+                    key={index}
+                    msg={msg}
+                    onSelectSource={(source) => {
+                      setActiveSource(source);
+                      setIsDrawerOpen(true);
+                    }}
+                  />
+                ))}
 
-                <div className="sample-prompts-container">
-                  <span className="prompts-title">Try asking:</span>
-                  <div className="prompt-chips">
-                    <button
-                      type="button"
-                      className="chip"
-                      onClick={() => handleSamplePrompt("What is the main summary of this document?")}
-                    >
-                      💡 What is the main summary of this document?
-                    </button>
-                    <button
-                      type="button"
-                      className="chip"
-                      onClick={() => handleSamplePrompt("What are the key findings or conclusions?")}
-                    >
-                      🔍 What are the key findings or conclusions?
-                    </button>
-                    <button
-                      type="button"
-                      className="chip"
-                      onClick={() => handleSamplePrompt("Explain the core concept in simple terms.")}
-                    >
-                      📖 Explain the core concept in simple terms.
-                    </button>
-                    <button
-                      type="button"
-                      className="chip"
-                      onClick={() => handleSamplePrompt("What are the most important takeaways?")}
-                    >
-                      📌 What are the most important takeaways?
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          ) : (
-            <div className="messages-list">
-              {messages.map((msg, index) => (
-                <div
-                  key={index}
-                  className={`message-row ${msg.role === "user" ? "user-row" : "assistant-row"}`}
-                >
-                  <div className="message-avatar">
-                    {msg.role === "user" ? "👤" : "✨"}
-                  </div>
-
-                  <div className="message-bubble-content">
-                    <div className="message-sender-bar">
-                      <span className="sender-name">
-                        {msg.role === "user" ? "You" : "DocuChat AI"}
-                      </span>
-                      {msg.timestamp && (
-                        <span className="message-time">{msg.timestamp}</span>
-                      )}
+                {/* Loading Indicator */}
+                {chatLoading && (
+                  <div className="ai-msg-row">
+                    <div className="ai-avatar-circle">
+                      <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
                     </div>
-
-                    <div className="message-text">
-                      {msg.role === "user" ? (
-                        msg.content.split("\n").map((para, pIdx) => (
-                          <p key={pIdx}>{para}</p>
-                        ))
-                      ) : (
-                        <div className="markdown-content">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Sources & Citations */}
-                    {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
-                      <div className="message-sources-box" aria-label="Sources and citations">
-                        <div className="sources-header">
-                          <span className="sources-icon" aria-hidden="true">📚</span>
-                          <span>Sources & Citations:</span>
-                        </div>
-                        <div className="source-cards-list">
-                          {msg.sources.map((src, sIdx) => (
-                            <div key={sIdx} className="source-card">
-                              <div className="source-card-title">
-                                <span className="source-filename" title={src.source || "Document"}>
-                                  <span className="source-file-icon" aria-hidden="true">📄</span>
-                                  <span className="source-file-name-text">{src.source || "Document"}</span>
-                                </span>
-                                <span className="source-page-tag">
-                                  Page {src.page_number != null && src.page_number >= 0 ? src.page_number : 1}
-                                </span>
-                              </div>
-                              {src.text && typeof src.text === "string" && src.text.trim() && (
-                                <div className="source-snippet" title={src.text.trim()}>
-                                  "{src.text.trim()}"
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                    <div className="ai-msg-body">
+                      <div className="ai-sender-header">
+                        <span className="ai-sender-name">DocuChat AI</span>
+                        <span className="text-xs text-gray-400">Searching vectors & generating...</span>
                       </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {/* Loading Indicator */}
-              {chatLoading && (
-                <div className="message-row assistant-row">
-                  <div className="message-avatar">✨</div>
-                  <div className="message-bubble-content loading-bubble">
-                    <div className="message-sender-bar">
-                      <span className="sender-name">DocuChat AI</span>
-                    </div>
-                    <div className="typing-indicator">
-                      <span className="dot" />
-                      <span className="dot" />
-                      <span className="dot" />
-                      <span className="typing-label">AI is thinking & retrieving context...</span>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </div>
-
-        {/* Bottom Input Area */}
-        <div className="chat-input-area">
-          {chatError && (
-            <div className="chat-error-banner">
-              <span>⚠️ {chatError}</span>
-              <button onClick={() => setChatError(null)} className="error-close-btn">×</button>
-            </div>
-          )}
-
-          <form onSubmit={handleChat} className="chat-input-form">
-            <textarea
-              ref={chatInputRef}
-              id="chat-input-field"
-              rows={1}
-              value={chatQuestion}
-              onChange={(e) => setChatQuestion(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                uploadedDoc
-                  ? "Ask anything about the PDF (e.g. What is supervised learning?)..."
-                  : "Upload a PDF or ask a question..."
-              }
-              className="chat-text-input"
-              disabled={chatLoading}
-              aria-label="Ask a question"
-            />
-            <button
-              type="submit"
-              disabled={chatLoading || !chatQuestion.trim()}
-              className="btn btn-send"
-              aria-label="Send message"
-            >
-              {chatLoading ? (
-                <span className="spinner-small" />
-              ) : (
-                <span>Send ➔</span>
-              )}
-            </button>
-          </form>
-          <div className="chat-input-footer">
-            <small>Grounded RAG answers powered by Chroma Cloud & Hugging Face LLM with Conversation Memory.</small>
+                <div ref={messagesEndRef} />
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Bottom Message Composer */}
+        <Composer
+          chatQuestion={chatQuestion}
+          setChatQuestion={setChatQuestion}
+          chatLoading={chatLoading}
+          chatError={chatError}
+          setChatError={setChatError}
+          handleChat={handleChat}
+          handleKeyDown={handleKeyDown}
+          chatInputRef={chatInputRef}
+          uploadedDoc={uploadedDoc}
+        />
       </main>
+
+      {/* ── Source Details Drawer ───────────────────────────────────── */}
+      <SourceDrawer
+        source={activeSource}
+        isOpen={isDrawerOpen}
+        onClose={() => {
+          setActiveSource(null);
+          setIsDrawerOpen(false);
+        }}
+      />
     </div>
   );
 }
