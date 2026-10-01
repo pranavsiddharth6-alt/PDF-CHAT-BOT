@@ -11,6 +11,8 @@ export default function Composer({
   chatInputRef,
   uploadedDoc,
 }) {
+  const isDocUploaded = Boolean(uploadedDoc && uploadedDoc.filename);
+
   return (
     <div className="composer-fixed-dock">
       <div className="composer-center-wrap">
@@ -28,13 +30,13 @@ export default function Composer({
         )}
 
         <div className="composer-card">
-          {/* Active Document Pill inside Composer */}
-          <div className="active-doc-chip">
-            <span className="material-symbols-outlined text-[16px] text-[#ececec]">description</span>
-            <span className="doc-chip-name">
-              {uploadedDoc ? uploadedDoc.filename : "LLM_and_RAG.pdf"}
-            </span>
-          </div>
+          {/* Active Document Pill inside Composer — rendered only when a document is uploaded */}
+          {isDocUploaded && (
+            <div className="active-doc-chip">
+              <span className="material-symbols-outlined text-[16px] text-[#ececec]">description</span>
+              <span className="doc-chip-name">{uploadedDoc.filename}</span>
+            </div>
+          )}
 
           {/* Text Input */}
           <textarea
@@ -45,12 +47,12 @@ export default function Composer({
             onChange={(e) => setChatQuestion(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              uploadedDoc
+              isDocUploaded
                 ? `Ask anything about ${uploadedDoc.filename}...`
-                : "Ask anything about your document..."
+                : "Upload a PDF to start chatting..."
             }
             className="composer-input-field"
-            disabled={chatLoading}
+            disabled={chatLoading || !isDocUploaded}
             aria-label="Ask a question"
           />
 
@@ -58,7 +60,7 @@ export default function Composer({
           <button
             type="button"
             onClick={handleChat}
-            disabled={chatLoading || !chatQuestion.trim()}
+            disabled={chatLoading || !chatQuestion.trim() || !isDocUploaded}
             className="send-btn-circle"
             aria-label="Send message"
           >
@@ -71,7 +73,9 @@ export default function Composer({
         </div>
 
         <p className="composer-helper-text">
-          DocuChat AI references your uploaded document. Citations are linked to exact PDF pages.
+          {isDocUploaded
+            ? "DocuChat AI references your uploaded document. Citations are linked to exact PDF pages."
+            : "Upload a PDF document from the sidebar to begin querying."}
         </p>
       </div>
     </div>
