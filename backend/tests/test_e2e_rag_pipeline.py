@@ -133,7 +133,7 @@ def test_full_e2e_rag_pipeline_upload_to_chat(setup_in_memory_vector_store):
     try:
         chat_response = client.post(
             "/api/chat",
-            json={"question": "What is supervised learning?", "top_k": 2}
+            json={"question": "What is supervised learning?", "top_k": 2, "document_filename": "ml_handbook.pdf"}
         )
         assert chat_response.status_code == 200
         chat_data = chat_response.json()
@@ -167,7 +167,7 @@ def test_phase7_test1_basic_conversation_followup(setup_in_memory_vector_store):
         choice1.message.content = "Supervised learning trains models on labeled data."
         mock_hf_client.chat_completion.return_value = MagicMock(choices=[choice1])
 
-        resp1 = client.post("/api/chat", json={"question": "What is supervised learning?"})
+        resp1 = client.post("/api/chat", json={"question": "What is supervised learning?", "document_filename": "ml.pdf"})
         assert resp1.status_code == 200
         cid = resp1.json()["conversation_id"]
 
@@ -176,7 +176,7 @@ def test_phase7_test1_basic_conversation_followup(setup_in_memory_vector_store):
         choice2.message.content = "Its main types are classification and regression."
         mock_hf_client.chat_completion.return_value = MagicMock(choices=[choice2])
 
-        resp2 = client.post("/api/chat", json={"conversation_id": cid, "question": "What are its types?"})
+        resp2 = client.post("/api/chat", json={"conversation_id": cid, "question": "What are its types?", "document_filename": "ml.pdf"})
         assert resp2.status_code == 200
         assert resp2.json()["conversation_id"] == cid
         assert resp2.json()["answer"] == "Its main types are classification and regression."
@@ -222,20 +222,20 @@ def test_phase7_test2_three_turn_conversation(setup_in_memory_vector_store):
         choice1 = MagicMock()
         choice1.message.content = "Machine learning is a field of AI."
         mock_hf_client.chat_completion.return_value = MagicMock(choices=[choice1])
-        r1 = client.post("/api/chat", json={"question": "What is machine learning?"})
+        r1 = client.post("/api/chat", json={"question": "What is machine learning?", "document_filename": "ml.pdf"})
         cid = r1.json()["conversation_id"]
 
         # Turn 2
         choice2 = MagicMock()
         choice2.message.content = "Types include supervised, unsupervised, and reinforcement."
         mock_hf_client.chat_completion.return_value = MagicMock(choices=[choice2])
-        r2 = client.post("/api/chat", json={"conversation_id": cid, "question": "What are its types?"})
+        r2 = client.post("/api/chat", json={"conversation_id": cid, "question": "What are its types?", "document_filename": "ml.pdf"})
 
         # Turn 3
         choice3 = MagicMock()
         choice3.message.content = "Supervised learning uses labeled data."
         mock_hf_client.chat_completion.return_value = MagicMock(choices=[choice3])
-        r3 = client.post("/api/chat", json={"conversation_id": cid, "question": "Which one uses labeled data?"})
+        r3 = client.post("/api/chat", json={"conversation_id": cid, "question": "Which one uses labeled data?", "document_filename": "ml.pdf"})
 
         assert r3.status_code == 200
         assert r3.json()["answer"] == "Supervised learning uses labeled data."
@@ -270,14 +270,14 @@ def test_phase7_test3_new_conversation_isolation(setup_in_memory_vector_store):
         choice_a = MagicMock()
         choice_a.message.content = "Quantum computing details."
         mock_hf_client.chat_completion.return_value = MagicMock(choices=[choice_a])
-        r_a = client.post("/api/chat", json={"question": "Tell me about quantum computing."})
+        r_a = client.post("/api/chat", json={"question": "Tell me about quantum computing.", "document_filename": "ml.pdf"})
         cid_a = r_a.json()["conversation_id"]
 
         # Session B (new conversation without conversation_id)
         choice_b = MagicMock()
         choice_b.message.content = "Classification and regression."
         mock_hf_client.chat_completion.return_value = MagicMock(choices=[choice_b])
-        r_b = client.post("/api/chat", json={"question": "What are its types?"})
+        r_b = client.post("/api/chat", json={"question": "What are its types?", "document_filename": "ml.pdf"})
         cid_b = r_b.json()["conversation_id"]
 
         assert cid_a != cid_b
@@ -308,7 +308,7 @@ def test_phase7_test4_pdf_grounding_and_sources(setup_in_memory_vector_store):
     llm_service._client = mock_hf_client
 
     try:
-        resp = client.post("/api/chat", json={"question": "What does regression predict?"})
+        resp = client.post("/api/chat", json={"question": "What does regression predict?", "document_filename": "textbook.pdf"})
         assert resp.status_code == 200
         data = resp.json()
 
@@ -333,7 +333,7 @@ def test_phase7_test5_unanswerable_question_no_hallucination(setup_in_memory_vec
     llm_service._client = mock_hf_client
 
     try:
-        resp = client.post("/api/chat", json={"question": "What is the secret recipe for chocolate cake?"})
+        resp = client.post("/api/chat", json={"question": "What is the secret recipe for chocolate cake?", "document_filename": "ml.pdf"})
         assert resp.status_code == 200
         data = resp.json()
 
@@ -362,7 +362,7 @@ def test_phase7_test6_history_limit(setup_in_memory_vector_store):
         cid = "capped_session"
         # Run 8 questions in the same session
         for i in range(1, 9):
-            client.post("/api/chat", json={"conversation_id": cid, "question": f"Question {i}"})
+            client.post("/api/chat", json={"conversation_id": cid, "question": f"Question {i}", "document_filename": "ml.pdf"})
 
         # Check prompt for the 8th turn: should have system (1) + max 6 history messages + current user message (1) = 8 messages total
         last_call_messages = mock_hf_client.chat_completion.call_args[1]["messages"]

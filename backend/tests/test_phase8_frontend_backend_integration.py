@@ -65,7 +65,7 @@ class TestPhase8UIBackendIntegration:
 
         response = client.post(
             "/api/chat",
-            json={"question": "What is deep learning?", "conversation_id": None}
+            json={"question": "What is deep learning?", "conversation_id": None, "document_filename": "deep_learning.pdf"}
         )
 
         assert response.status_code == 200
@@ -94,14 +94,14 @@ class TestPhase8UIBackendIntegration:
         # Turn 1
         turn1 = client.post(
             "/api/chat",
-            json={"question": "What is deep learning?", "conversation_id": None}
+            json={"question": "What is deep learning?", "conversation_id": None, "document_filename": "deep_learning.pdf"}
         )
         conv_id = turn1.json()["conversation_id"]
 
         # Turn 2: Follow-up question using the session ID
         turn2 = client.post(
             "/api/chat",
-            json={"question": "What are its types?", "conversation_id": conv_id}
+            json={"question": "What are its types?", "conversation_id": conv_id, "document_filename": "deep_learning.pdf"}
         )
 
         assert turn2.status_code == 200
@@ -125,7 +125,7 @@ class TestPhase8UIBackendIntegration:
 
         response = client.post(
             "/api/chat",
-            json={"question": "What is the capital of Mars?", "conversation_id": None}
+            json={"question": "What is the capital of Mars?", "conversation_id": None, "document_filename": "deep_learning.pdf"}
         )
 
         assert response.status_code == 200
@@ -141,11 +141,11 @@ class TestPhase8UIBackendIntegration:
         mock_llm.return_value = "Answer 1"
 
         # Conversation A
-        res_a = client.post("/api/chat", json={"question": "Question A", "conversation_id": None})
+        res_a = client.post("/api/chat", json={"question": "Question A", "conversation_id": None, "document_filename": "deep_learning.pdf"})
         conv_a = res_a.json()["conversation_id"]
 
         # Reset / New Conversation B
-        res_b = client.post("/api/chat", json={"question": "Question B", "conversation_id": None})
+        res_b = client.post("/api/chat", json={"question": "Question B", "conversation_id": None, "document_filename": "deep_learning.pdf"})
         conv_b = res_b.json()["conversation_id"]
 
         assert conv_a != conv_b
@@ -176,7 +176,7 @@ class TestPhase8UIBackendIntegration:
         """TEST 7: Try submitting an empty question -> Validation message."""
         response = client.post(
             "/api/chat",
-            json={"question": "   ", "conversation_id": None}
+            json={"question": "   ", "conversation_id": None, "document_filename": "deep_learning.pdf"}
         )
         assert response.status_code == 400
         assert "must not be empty" in response.json()["detail"]

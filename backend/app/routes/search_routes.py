@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from app.services.embedding_service import embedding_service, EmbeddingError
@@ -12,6 +13,10 @@ router = APIRouter(prefix="/api/search", tags=["search"])
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="The search query string.")
     top_k: int = Field(default=3, ge=1, le=20, description="Number of top results to return (1–20).")
+    document_filename: Optional[str] = Field(
+        default=None,
+        description="Optional active PDF filename to restrict search scope."
+    )
 
 
 @router.post("")
@@ -20,14 +25,9 @@ def semantic_search(request: SearchRequest):
     Phase 4 Endpoint: Semantic search over stored document chunks.
 
     1. Validates the incoming query and top_k parameter.
-    2. Generates a 384-dimensional query embedding via the existing
-       embedding_service (sentence-transformers/all-MiniLM-L6-v2).
-    3. Queries Chroma Cloud for the top-K most similar stored chunks.
-    4. Returns matching chunk text, page number, source filename,
-       and cosine distance from the query.
-
-    This endpoint does NOT call an LLM or generate any answer.
-    It is a retrieval-only endpoint for testing semantic search.
+    2. Generates a 384-dimensional query embedding via embedding_service.
+    3. Queries Chroma Cloud for top-K matching chunks (optionally filtered by document_filename).
+    4. Returns matching chunk text, page number, source filename, and cosine distance.
     """
     query = request.query.strip()
     if not query:
@@ -37,9 +37,12 @@ def semantic_search(request: SearchRequest):
             detail="Query must not be empty or whitespace-only."
         )
 
-    logger.info(f"Received semantic search query (top_k={request.top_k}).")
+    doc_filename = request.document_filename.strip() if request.document_filename else None
+    where_filter = {"source": doc_filename} if doc_filename else None
 
-    # 1. Generate query embedding using the same model used for documents
+    logger.info(f"Received semantic search query (top_k={request.top_k}, doc='{doc_filename}').")
+
+    # 1. Generate query embedding
     try:
         embeddings, dimension = embedding_service.generate_embeddings([query])
         query_embedding = embeddings[0]
@@ -61,6 +64,7 @@ def semantic_search(request: SearchRequest):
         results = vector_store_service.search(
             query_embedding=query_embedding,
             top_k=request.top_k,
+            where=where_filter,
         )
     except VectorStoreError as ve:
         logger.error(f"Semantic search vector retrieval error: {str(ve)}")

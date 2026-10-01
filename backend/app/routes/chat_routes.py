@@ -18,6 +18,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Unique conversation/session ID. If omitted or null, a new conversation is started."
     )
+    document_filename: Optional[str] = Field(
+        default=None,
+        description="Filename of the active PDF document to restrict metadata search scope."
+    )
     question: str = Field(
         ...,
         min_length=1,
@@ -46,15 +50,15 @@ class ChatResponse(BaseModel):
 def chat_with_pdf(request: ChatRequest):
     """
     Phase 7 Endpoint: Multi-Turn RAG Question-Answering over uploaded PDF documents
-    with conversation memory.
+    with conversation memory and active document isolation.
 
-    1. Validates user question.
+    1. Validates user question and active document filename.
     2. Resolves or generates unique conversation_id.
     3. Retrieves previous dialogue history for the conversation.
     4. Generates query vector embedding using existing EmbeddingService.
-    5. Retrieves top-K context chunks from existing Chroma Cloud collection.
+    5. Retrieves top-K context chunks from Chroma Cloud restricted strictly to active document_filename.
     6. Assembles grounded prompt combining conversation history + retrieved context + question.
-    7. Generates natural language answer via Hugging Face LLM (Qwen/Qwen2.5-7B-Instruct).
+    7. Generates natural language answer via Hugging Face LLM.
     8. Records user turn and assistant answer into conversation memory.
     9. Returns answer, conversation_id, and source citations.
     """
@@ -64,6 +68,15 @@ def chat_with_pdf(request: ChatRequest):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Question must not be empty or whitespace-only."
+        )
+
+    # Validate active document filename to prevent unrestricted cross-document retrieval
+    doc_filename = request.document_filename.strip() if request.document_filename else ""
+    if not doc_filename:
+        logger.warning("Chat request rejected: Missing active document_filename.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Active document_filename is required for grounded document chat."
         )
 
     # 1. Resolve or create conversation session
@@ -76,7 +89,7 @@ def chat_with_pdf(request: ChatRequest):
     past_history = conversation_service.get_history(conversation_id)
     logger.info(
         f"Processing chat question for conversation '{conversation_id}' "
-        f"(history_messages={len(past_history)}, top_k={request.top_k})."
+        f"(doc='{doc_filename}', history_messages={len(past_history)}, top_k={request.top_k})."
     )
 
     # 3. Generate query embedding using existing EmbeddingService
@@ -96,11 +109,13 @@ def chat_with_pdf(request: ChatRequest):
             detail=f"Unexpected error during query embedding: {str(e)}"
         )
 
-    # 4. Retrieve top-K relevant chunks from existing Chroma Cloud collection
+    # 4. Retrieve top-K relevant chunks scoped strictly to the active document_filename
+    where_filter = {"source": doc_filename}
     try:
         chunks = vector_store_service.search(
             query_embedding=query_embedding,
             top_k=request.top_k,
+            where=where_filter,
         )
     except VectorStoreError as ve:
         logger.error(f"Chat vector retrieval error: {str(ve)}")
@@ -115,14 +130,14 @@ def chat_with_pdf(request: ChatRequest):
             detail=f"Unexpected error during similarity search: {str(e)}"
         )
 
-    logger.info(f"Retrieved {len(chunks)} context chunk(s) for chat question.")
+    logger.info(f"Retrieved {len(chunks)} context chunk(s) for document '{doc_filename}'.")
 
     # 5. Extract unique source file & page number pairs
     sources: List[Dict[str, Any]] = []
     seen_sources = set()
 
     for chunk in chunks:
-        src = chunk.get("source", "unknown")
+        src = chunk.get("source", doc_filename)
         page = chunk.get("page_number", -1)
         key = (src, page)
         if key not in seen_sources:

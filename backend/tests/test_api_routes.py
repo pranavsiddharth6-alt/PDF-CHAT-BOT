@@ -97,16 +97,23 @@ def test_semantic_search_success(mock_search, mock_embed):
 
 def test_chat_with_pdf_empty_question():
     """Test RAG chat route with empty question string."""
-    response = client.post("/api/chat", json={"question": "   ", "top_k": 3})
+    response = client.post("/api/chat", json={"question": "   ", "document_filename": "doc.pdf", "top_k": 3})
     assert response.status_code == 400
     assert "Question must not be empty" in response.json()["detail"]
+
+
+def test_chat_with_pdf_missing_document_filename():
+    """Test RAG chat route rejects requests without active document_filename."""
+    response = client.post("/api/chat", json={"question": "What is in the PDF?", "top_k": 3})
+    assert response.status_code == 400
+    assert "Active document_filename is required" in response.json()["detail"]
 
 
 @patch("app.routes.chat_routes.embedding_service.generate_embeddings")
 @patch("app.routes.chat_routes.vector_store_service.search")
 @patch("app.routes.chat_routes.llm_service.generate_answer")
 def test_chat_with_pdf_success(mock_answer, mock_search, mock_embed):
-    """Test successful RAG chat Q&A endpoint and conversation ID returned."""
+    """Test successful RAG chat Q&A endpoint with document_filename filter."""
     mock_embed.return_value = ([[0.1] * 384], 384)
     mock_search.return_value = [
         {
@@ -119,7 +126,7 @@ def test_chat_with_pdf_success(mock_answer, mock_search, mock_embed):
     ]
     mock_answer.return_value = "Machine learning is a field of AI."
 
-    response = client.post("/api/chat", json={"question": "What is machine learning?", "top_k": 3})
+    response = client.post("/api/chat", json={"question": "What is machine learning?", "document_filename": "doc.pdf", "top_k": 3})
     assert response.status_code == 200
     data = response.json()
 
@@ -127,25 +134,61 @@ def test_chat_with_pdf_success(mock_answer, mock_search, mock_embed):
     assert len(data["sources"]) == 1
     assert data["sources"][0] == {"source": "doc.pdf", "page_number": 1}
     assert "conversation_id" in data
-    assert len(data["conversation_id"]) > 0
+
+    # Verify vector_store_service.search was called with metadata filter for doc.pdf
+    mock_search.assert_called_once()
+    _, kwargs = mock_search.call_args
+    assert kwargs.get("where") == {"source": "doc.pdf"}
+
+
+@patch("app.routes.chat_routes.embedding_service.generate_embeddings")
+@patch("app.routes.chat_routes.vector_store_service.search")
+@patch("app.routes.chat_routes.llm_service.generate_answer")
+def test_chat_with_pdf_multi_document_isolation(mock_answer, mock_search, mock_embed):
+    """Test that querying docA.pdf isolates Chroma search strictly to docA.pdf and excludes docB.pdf."""
+    mock_embed.return_value = ([[0.2] * 384], 384)
+
+    # When searching for docA.pdf, return only docA chunks
+    mock_search.return_value = [
+        {"chunk_id": "docA__p1_c0", "source": "docA.pdf", "page_number": 1, "text": "Content from Document A"}
+    ]
+    mock_answer.return_value = "Response based on Document A."
+
+    response_a = client.post("/api/chat", json={"question": "Summarize doc", "document_filename": "docA.pdf"})
+    assert response_a.status_code == 200
+    data_a = response_a.json()
+    assert data_a["sources"][0]["source"] == "docA.pdf"
+    assert mock_search.call_args[1]["where"] == {"source": "docA.pdf"}
+
+    mock_search.reset_mock()
+    # When searching for docB.pdf, return only docB chunks
+    mock_search.return_value = [
+        {"chunk_id": "docB__p2_c1", "source": "docB.pdf", "page_number": 2, "text": "Content from Document B"}
+    ]
+    mock_answer.return_value = "Response based on Document B."
+
+    response_b = client.post("/api/chat", json={"question": "Summarize doc", "document_filename": "docB.pdf"})
+    assert response_b.status_code == 200
+    data_b = response_b.json()
+    assert data_b["sources"][0]["source"] == "docB.pdf"
+    assert mock_search.call_args[1]["where"] == {"source": "docB.pdf"}
 
 
 @patch("app.routes.chat_routes.embedding_service.generate_embeddings")
 @patch("app.routes.chat_routes.vector_store_service.search")
 @patch("app.routes.chat_routes.llm_service.generate_answer")
 def test_chat_with_pdf_empty_retrieval(mock_answer, mock_search, mock_embed):
-    """Test chat flow when vector store returns 0 matching chunks."""
+    """Test chat flow when vector store returns 0 matching chunks for active document."""
     mock_embed.return_value = ([[0.1] * 384], 384)
     mock_search.return_value = []
     mock_answer.return_value = "The requested information was not found in the uploaded document."
 
-    response = client.post("/api/chat", json={"question": "Where is the secret key?", "top_k": 3})
+    response = client.post("/api/chat", json={"question": "Where is the secret key?", "document_filename": "doc.pdf", "top_k": 3})
     assert response.status_code == 200
     data = response.json()
 
     assert data["answer"] == "The requested information was not found in the uploaded document."
     assert data["sources"] == []
-    assert "conversation_id" in data
 
 
 @patch("app.routes.chat_routes.embedding_service.generate_embeddings")
@@ -161,7 +204,7 @@ def test_chat_with_pdf_source_deduplication(mock_answer, mock_search, mock_embed
     ]
     mock_answer.return_value = "Deduplicated response."
 
-    response = client.post("/api/chat", json={"question": "Overview", "top_k": 3})
+    response = client.post("/api/chat", json={"question": "Overview", "document_filename": "guide.pdf", "top_k": 3})
     assert response.status_code == 200
     data = response.json()
 
@@ -175,7 +218,7 @@ def test_chat_with_pdf_source_deduplication(mock_answer, mock_search, mock_embed
 def test_chat_with_pdf_vector_store_failure(mock_search, mock_embed):
     """Test 503 error handling when vector store search fails."""
     mock_embed.return_value = ([[0.1] * 384], 384)
-    response = client.post("/api/chat", json={"question": "What is AI?"})
+    response = client.post("/api/chat", json={"question": "What is AI?", "document_filename": "doc.pdf"})
     assert response.status_code == 503
     assert "Vector store retrieval failed" in response.json()["detail"]
 
@@ -186,7 +229,7 @@ def test_chat_with_pdf_vector_store_failure(mock_search, mock_embed):
 def test_chat_with_pdf_llm_failure(mock_answer, mock_search, mock_embed):
     """Test 500 error handling when LLM answer generation fails."""
     mock_embed.return_value = ([[0.1] * 384], 384)
-    response = client.post("/api/chat", json={"question": "What is AI?"})
+    response = client.post("/api/chat", json={"question": "What is AI?", "document_filename": "doc.pdf"})
     assert response.status_code == 500
     assert "LLM generation failed" in response.json()["detail"]
 

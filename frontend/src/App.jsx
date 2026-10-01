@@ -176,6 +176,11 @@ function App() {
       return;
     }
 
+    if (!uploadedDoc || !uploadedDoc.filename) {
+      setChatError("Please upload a PDF document before asking a question.");
+      return;
+    }
+
     setChatLoading(true);
     setChatError(null);
 
@@ -195,6 +200,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversation_id: conversationId,
+          document_filename: uploadedDoc.filename,
           question: q,
         }),
       });
@@ -229,7 +235,7 @@ function App() {
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!chatLoading && chatQuestion.trim()) {
+      if (!chatLoading && chatQuestion.trim() && uploadedDoc && uploadedDoc.filename) {
         handleChat(e);
       }
     }
